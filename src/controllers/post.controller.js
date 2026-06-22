@@ -174,7 +174,7 @@ export const updatePost = async (req, res) => {
   if (req.body.hashtags !== undefined)
     post.hashtags = normalizeHashtags(req.body.hashtags);
   await post.save();
-  res.json(post);
+  res.json(await post.populate("author", "name avatar city locality pincode"));
 };
 export const deletePost = async (req, res) => {
   const post = await owned(req.params.id, req.user);
