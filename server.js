@@ -13,12 +13,16 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+app.set("io", io);
 io.use(async (socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    next();
+    return;
+  }
+
   try {
-    const decoded = jwt.verify(
-      socket.handshake.auth.token,
-      process.env.JWT_SECRET,
-    );
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = await User.findById(decoded.id).select("name avatar");
     if (!socket.user) throw new Error();
     next();
@@ -31,6 +35,7 @@ io.on("connection", (socket) => {
   socket.on("room:leave", (roomId) => socket.leave(roomId));
   socket.on("message:send", async ({ roomId, content }, ack = () => {}) => {
     try {
+      if (!socket.user) throw new Error("Authentication required");
       if (!content?.trim() || content.length > 1000)
         throw new Error("Message must be 1-1000 characters");
       const message = await Message.create({
@@ -56,3 +61,6 @@ connectDB()
     console.error(e);
     process.exit(1);
   });
+
+
+

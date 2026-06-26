@@ -8,6 +8,11 @@ const schema = new mongoose.Schema(
       index: true,
     },
     content: { type: String, required: true, trim: true, maxlength: 3000 },
+    businessPage: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BusinessPage",
+      index: true,
+    },
     images: [String],
     type: {
       type: String,
@@ -32,3 +37,4 @@ const schema = new mongoose.Schema(
 schema.index({ city: 1, locality: 1, createdAt: -1 });
 schema.index({ pincode: 1, createdAt: -1 });
 export default mongoose.model("Post", schema);
+

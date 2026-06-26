@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import Comment from "../models/comment.model.js";
 import Post from "../models/post.model.js";
 
+const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
+
 const findPost = async (postId) => {
   if (!mongoose.isValidObjectId(postId)) {
     const e = new Error("Invalid post ID");
@@ -54,5 +56,14 @@ export const createComment = async (req, res) => {
   }
 
   await comment.populate("author", "name avatar");
+  emit(req, "comments:created", {
+    postId: post._id,
+    comment,
+    commentsCount: post.commentsCount,
+  });
+  emit(req, "posts:commented", {
+    _id: post._id,
+    commentsCount: post.commentsCount,
+  });
   res.status(201).json({ comment, commentsCount: post.commentsCount });
 };

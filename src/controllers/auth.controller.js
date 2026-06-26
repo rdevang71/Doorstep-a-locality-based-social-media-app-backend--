@@ -4,6 +4,7 @@ import Community from "../models/community.model.js";
 import generateToken from "../utils/generateToken.js";
 
 const accountTypes = ["user", "business", "community"];
+const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 
 const safe = (u) => ({
   id: u._id,
@@ -90,7 +91,7 @@ export const register = async (req, res) => {
     });
 
     if (accountType === "business") {
-      await Business.create({
+      const business = await Business.create({
         owner: user._id,
         name: businessName.trim(),
         description: organizationDescription?.trim(),
@@ -98,10 +99,11 @@ export const register = async (req, res) => {
         city,
         locality,
       });
+      emit(req, "business-pages:changed", business);
     }
 
     if (accountType === "community") {
-      await Community.create({
+      const community = await Community.create({
         creator: user._id,
         name: communityName.trim(),
         description: organizationDescription?.trim(),
@@ -110,6 +112,7 @@ export const register = async (req, res) => {
         isPrivate: Boolean(communityPrivate),
         members: [user._id],
       });
+      emit(req, "communities:changed", community);
     }
   } catch (error) {
     if (user) await User.deleteOne({ _id: user._id }).catch(() => {});

@@ -1,10 +1,16 @@
 import Post from "../models/post.model.js";
+import Business from "../models/businessPage.model.js";
 import Comment from "../models/comment.model.js";
 import normalizeHashtags from "../utils/normalizeHashtags.js";
 import cloudinary from "../config/cloudinary.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
+const postPopulate = [
+  { path: "author", select: "name avatar city locality pincode" },
+  { path: "businessPage", select: "name category logo city locality owner" },
+];
 const imageExtensions = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -82,7 +88,30 @@ const owned = async (id, user) => {
   return post;
 };
 export const createPost = async (req, res) => {
-  const { content, type, city, locality, pincode, hashtags, images } = req.body;
+  const {
+    content,
+    type,
+    city,
+    locality,
+    pincode,
+    hashtags,
+    images,
+    businessPage,
+    businessPageId,
+  } = req.body;
+  const selectedBusinessId = businessPage || businessPageId;
+  let selectedBusiness;
+  if (selectedBusinessId) {
+    selectedBusiness = await Business.findOne({
+      _id: selectedBusinessId,
+      owner: req.user.id,
+    });
+    if (!selectedBusiness) {
+      const e = new Error("Business page not found or not yours");
+      e.status = 403;
+      throw e;
+    }
+  }
   const suppliedImages = Array.isArray(images)
     ? images
     : images
@@ -93,15 +122,21 @@ export const createPost = async (req, res) => {
     author: req.user.id,
     content,
     type,
-    city: city || req.user.city,
-    locality: locality || req.user.locality,
+    businessPage: selectedBusiness?._id,
+    city: city || selectedBusiness?.city || req.user.city,
+    locality: locality || selectedBusiness?.locality || req.user.locality,
     pincode: pincode || req.user.pincode,
     hashtags: normalizeHashtags(hashtags),
     images: [...suppliedImages, ...uploadedImages],
   });
-  res
-    .status(201)
-    .json(await post.populate("author", "name avatar city locality pincode"));
+  const populated = await post.populate(postPopulate);
+  emit(req, "posts:created", populated);
+  emit(req, "hashtags:changed", {
+    city: populated.city,
+    locality: populated.locality,
+    pincode: populated.pincode,
+  });
+  res.status(201).json(populated);
 };
 export const listPosts = async (req, res) => {
   const {
@@ -110,6 +145,8 @@ export const listPosts = async (req, res) => {
     pincode,
     hashtag,
     type,
+    businessPageId,
+    businessOnly,
     sort = "recent",
     page = 1,
     limit = 20,
@@ -130,11 +167,13 @@ export const listPosts = async (req, res) => {
     }),
     ...(hashtag && { hashtags: normalizeHashtags([hashtag])[0] }),
     ...(type && { type }),
+    ...(businessOnly === "true" && { businessPage: { $exists: true, $ne: null } }),
+    ...(businessPageId && { businessPage: businessPageId }),
   };
   const take = Math.min(Number(limit) || 20, 50);
   const [posts, total] = await Promise.all([
     Post.find(filter)
-      .populate("author", "name avatar city locality pincode")
+      .populate(postPopulate)
       .sort(
         sort === "popular"
           ? { commentsCount: -1, createdAt: -1 }
@@ -155,10 +194,7 @@ export const listPosts = async (req, res) => {
   });
 };
 export const getPost = async (req, res) => {
-  const post = await Post.findById(req.params.id).populate(
-    "author",
-    "name avatar city locality pincode",
-  );
+  const post = await Post.findById(req.params.id).populate(postPopulate);
   if (!post) {
     const e = new Error("Post not found");
     e.status = 404;
@@ -174,7 +210,14 @@ export const updatePost = async (req, res) => {
   if (req.body.hashtags !== undefined)
     post.hashtags = normalizeHashtags(req.body.hashtags);
   await post.save();
-  res.json(await post.populate("author", "name avatar city locality pincode"));
+  const populated = await post.populate(postPopulate);
+  emit(req, "posts:updated", populated);
+  emit(req, "hashtags:changed", {
+    city: populated.city,
+    locality: populated.locality,
+    pincode: populated.pincode,
+  });
+  res.json(populated);
 };
 export const deletePost = async (req, res) => {
   const post = await owned(req.params.id, req.user);
@@ -182,6 +225,17 @@ export const deletePost = async (req, res) => {
     post.deleteOne(),
     Comment.deleteMany({ post: post._id }),
   ]);
+  emit(req, "posts:deleted", {
+    _id: post._id,
+    city: post.city,
+    locality: post.locality,
+    pincode: post.pincode,
+  });
+  emit(req, "hashtags:changed", {
+    city: post.city,
+    locality: post.locality,
+    pincode: post.pincode,
+  });
   res.json({ message: "Post deleted" });
 };
 export const toggleLike = async (req, res) => {
@@ -196,5 +250,17 @@ export const toggleLike = async (req, res) => {
   );
   index >= 0 ? post.likes.splice(index, 1) : post.likes.push(req.user.id);
   await post.save();
+  emit(req, "posts:liked", {
+    _id: post._id,
+    liked: index < 0,
+    likesCount: post.likes.length,
+    userId: req.user.id,
+  });
   res.json({ liked: index < 0, likesCount: post.likes.length });
 };
+
+
+
+
+
+

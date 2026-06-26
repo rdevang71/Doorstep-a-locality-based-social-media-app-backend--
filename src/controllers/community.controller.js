@@ -1,18 +1,19 @@
 import Community from "../models/community.model.js";
-export const create = async (req, res) =>
-  res
-    .status(201)
-    .json(
-      await Community.create({
-        ...req.body,
-        creator: req.user.id,
-        members: [req.user.id],
-      }),
-    );
+const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
+const escapeRegex = (value) => String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const create = async (req, res) => {
+  const item = await Community.create({
+    ...req.body,
+    creator: req.user.id,
+    members: [req.user.id],
+  });
+  emit(req, "communities:changed", item);
+  res.status(201).json(item);
+};
 export const list = async (req, res) =>
   res.json(
     await Community.find(
-      req.query.city ? { city: new RegExp(`^${req.query.city}$`, "i") } : {},
+      req.query.city ? { city: new RegExp(`^${escapeRegex(req.query.city)}$`, "i") } : {},
     )
       .populate("creator", "name avatar")
       .sort("-createdAt"),
@@ -39,7 +40,10 @@ const membership = (join) => async (req, res) => {
   item.members = item.members.filter((id) => !id.equals(req.user.id));
   if (join) item.members.push(req.user.id);
   await item.save();
+  emit(req, "communities:changed", item);
   res.json({ joined: join, membersCount: item.members.length });
 };
 export const join = membership(true);
 export const leave = membership(false);
+
+
