@@ -14,6 +14,16 @@ export default mongoose.model(
       locality: String,
       isPrivate: { type: Boolean, default: false },
       members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      joinRequests: [
+        {
+          user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+          },
+          requestedAt: { type: Date, default: Date.now },
+        },
+      ],
     },
     { timestamps: true },
   ),
