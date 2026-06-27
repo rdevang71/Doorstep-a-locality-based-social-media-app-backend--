@@ -1,5 +1,5 @@
 import Notification from "../models/notification.model.js";
-export default async (recipient, actor, type, message, link = "") =>
+export default async (recipient, actor, type, message, link = "", data = {}) =>
   recipient?.toString() === actor?.toString()
     ? null
-    : Notification.create({ recipient, actor, type, message, link });
+    : Notification.create({ recipient, actor, type, message, link, data });

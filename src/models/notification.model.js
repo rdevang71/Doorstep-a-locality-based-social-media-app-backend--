@@ -13,6 +13,7 @@ export default mongoose.model(
       type: { type: String, required: true },
       message: { type: String, required: true },
       link: String,
+      data: { type: mongoose.Schema.Types.Mixed, default: {} },
       read: { type: Boolean, default: false },
     },
     { timestamps: true },

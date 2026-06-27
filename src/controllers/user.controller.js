@@ -169,7 +169,28 @@ export const rejectFriend = async (req, res) => {
   res.json(await populateProfile(User.findById(me._id)));
 };
 
-
-
-
-
+export const removeFriend = async (req, res) => {
+  if (sameId(req.params.id, req.user.id)) {
+    const e = new Error("You cannot unfriend yourself");
+    e.status = 400;
+    throw e;
+  }
+  const [me, other] = await Promise.all([
+    User.findById(req.user.id),
+    User.findById(req.params.id),
+  ]);
+  if (!other) {
+    const e = new Error("User not found");
+    e.status = 404;
+    throw e;
+  }
+  if (!me.friends.some((id) => sameId(id, other._id))) {
+    const e = new Error("You are not friends");
+    e.status = 409;
+    throw e;
+  }
+  me.friends = me.friends.filter((id) => !sameId(id, other._id));
+  other.friends = other.friends.filter((id) => !sameId(id, me._id));
+  await Promise.all([me.save(), other.save()]);
+  res.json(await populateProfile(User.findById(me._id)));
+};

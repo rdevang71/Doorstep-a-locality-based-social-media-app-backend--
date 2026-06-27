@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   acceptFriend,
   getProfile,
+  removeFriend,
   rejectFriend,
   requestFriend,
   updateMe,
@@ -14,6 +15,7 @@ r.put("/me", protect, upload.single("avatar"), updateMe);
 r.put("/:id/friend-request", protect, requestFriend);
 r.put("/:id/friend-accept", protect, acceptFriend);
 r.put("/:id/friend-reject", protect, rejectFriend);
+r.put("/:id/friend-remove", protect, removeFriend);
 r.get("/:id", getProfile);
 export default r;
 

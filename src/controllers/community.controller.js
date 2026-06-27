@@ -1,4 +1,5 @@
 import Community from "../models/community.model.js";
+import Notification from "../models/notification.model.js";
 import createNotification from "../utils/createNotification.js";
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 const escapeRegex = (value) => String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -24,6 +25,16 @@ const findCommunity = async (id) => {
   }
   return item;
 };
+const markJoinRequestNotificationsRead = (recipient, actor, communityId) =>
+  Notification.updateMany(
+    {
+      recipient,
+      actor,
+      type: "community_join_request",
+      $or: [{ link: `/communities/${communityId}` }, { "data.communityId": communityId }],
+    },
+    { read: true },
+  );
 const sendCommunity = async (req, res, item, status = 200) => {
   const populated = await populateCommunity(Community.findById(item._id));
   emit(req, "communities:changed", populated);
@@ -79,6 +90,7 @@ export const requestJoin = async (req, res) => {
     "community_join_request",
     `${req.user.name} requested to join ${item.name}`,
     `/communities/${item._id}`,
+    { communityId: item._id },
   );
   await sendCommunity(req, res, item);
 };
@@ -100,6 +112,10 @@ export const approveRequest = async (req, res) => {
   const item = await findCommunity(req.params.id);
   requireAdmin(item, req.user.id);
   const requested = hasRequest(item, req.params.userId);
+  if (!requested && isMember(item, req.params.userId)) {
+    await markJoinRequestNotificationsRead(req.user.id, req.params.userId, item._id);
+    return sendCommunity(req, res, item);
+  }
   if (!requested) {
     const e = new Error("Join request not found");
     e.status = 404;
@@ -108,12 +124,14 @@ export const approveRequest = async (req, res) => {
   item.joinRequests = item.joinRequests.filter((request) => !sameId(request.user, req.params.userId));
   if (!isMember(item, req.params.userId)) item.members.push(req.params.userId);
   await item.save();
+  await markJoinRequestNotificationsRead(req.user.id, req.params.userId, item._id);
   await createNotification(
     req.params.userId,
     req.user.id,
     "community_join_approved",
     `Your request to join ${item.name} was approved`,
     `/communities/${item._id}`,
+    { communityId: item._id },
   );
   await sendCommunity(req, res, item);
 };
@@ -129,12 +147,14 @@ export const rejectRequest = async (req, res) => {
   }
   item.joinRequests = item.joinRequests.filter((request) => !sameId(request.user, req.params.userId));
   await item.save();
+  await markJoinRequestNotificationsRead(req.user.id, req.params.userId, item._id);
   await createNotification(
     req.params.userId,
     req.user.id,
     "community_join_rejected",
     `Your request to join ${item.name} was rejected`,
     `/communities/${item._id}`,
+    { communityId: item._id },
   );
   await sendCommunity(req, res, item);
 };

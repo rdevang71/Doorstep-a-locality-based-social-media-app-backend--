@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Comment from "../models/comment.model.js";
 import Post from "../models/post.model.js";
+import createNotification from "../utils/createNotification.js";
 
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 
@@ -65,5 +66,13 @@ export const createComment = async (req, res) => {
     _id: post._id,
     commentsCount: post.commentsCount,
   });
+  await createNotification(
+    post.author,
+    req.user.id,
+    "post_comment",
+    `${req.user.name} commented on your post`,
+    `/posts/${post._id}`,
+    { postId: post._id, commentId: comment._id },
+  );
   res.status(201).json({ comment, commentsCount: post.commentsCount });
 };

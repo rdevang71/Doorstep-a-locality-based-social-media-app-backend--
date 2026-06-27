@@ -2,6 +2,7 @@ import Post from "../models/post.model.js";
 import Business from "../models/businessPage.model.js";
 import Comment from "../models/comment.model.js";
 import normalizeHashtags from "../utils/normalizeHashtags.js";
+import createNotification from "../utils/createNotification.js";
 import { isCloudinaryConfigured } from "../config/cloudinary.js";
 import uploadImageBuffer from "../utils/cloudinaryUpload.js";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
@@ -237,15 +238,26 @@ export const toggleLike = async (req, res) => {
   const index = post.likes.findIndex(
     (id) => id.toString() === req.user.id.toString(),
   );
+  const liked = index < 0;
   index >= 0 ? post.likes.splice(index, 1) : post.likes.push(req.user.id);
   await post.save();
+  if (liked) {
+    await createNotification(
+      post.author,
+      req.user.id,
+      "post_like",
+      `${req.user.name} liked your post`,
+      `/posts/${post._id}`,
+      { postId: post._id },
+    );
+  }
   emit(req, "posts:liked", {
     _id: post._id,
-    liked: index < 0,
+    liked,
     likesCount: post.likes.length,
     userId: req.user.id,
   });
-  res.json({ liked: index < 0, likesCount: post.likes.length });
+  res.json({ liked, likesCount: post.likes.length });
 };
 
 
