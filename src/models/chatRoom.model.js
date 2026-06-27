@@ -6,7 +6,7 @@ export default mongoose.model(
       name: { type: String, required: true, trim: true, maxlength: 80 },
       description: { type: String, trim: true, maxlength: 300 },
       avatar: String,
-      roomCode: { type: String, required: true, unique: true, index: true },
+      roomCode: { type: String, required: true, unique: true, sparse: true, index: true },
       type: {
         type: String,
         enum: ["public", "private"],
@@ -22,6 +22,9 @@ export default mongoose.model(
         index: true,
       },
       isCommunityRoom: { type: Boolean, default: false, index: true },
+      isDirect: { type: Boolean, default: false, index: true },
+      directMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      directKey: { type: String, unique: true, sparse: true, index: true },
       createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
@@ -32,3 +35,5 @@ export default mongoose.model(
     { timestamps: true },
   ),
 );
+
+

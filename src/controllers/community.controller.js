@@ -1,4 +1,5 @@
 import Community from "../models/community.model.js";
+import createNotification from "../utils/createNotification.js";
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 const escapeRegex = (value) => String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sameId = (a, b) => String(a?._id || a) === String(b?._id || b);
@@ -72,6 +73,13 @@ export const requestJoin = async (req, res) => {
   }
   item.joinRequests.push({ user: req.user.id });
   await item.save();
+  await createNotification(
+    item.creator,
+    req.user.id,
+    "community_join_request",
+    `${req.user.name} requested to join ${item.name}`,
+    `/communities/${item._id}`,
+  );
   await sendCommunity(req, res, item);
 };
 
@@ -100,6 +108,13 @@ export const approveRequest = async (req, res) => {
   item.joinRequests = item.joinRequests.filter((request) => !sameId(request.user, req.params.userId));
   if (!isMember(item, req.params.userId)) item.members.push(req.params.userId);
   await item.save();
+  await createNotification(
+    req.params.userId,
+    req.user.id,
+    "community_join_approved",
+    `Your request to join ${item.name} was approved`,
+    `/communities/${item._id}`,
+  );
   await sendCommunity(req, res, item);
 };
 
@@ -114,7 +129,15 @@ export const rejectRequest = async (req, res) => {
   }
   item.joinRequests = item.joinRequests.filter((request) => !sameId(request.user, req.params.userId));
   await item.save();
+  await createNotification(
+    req.params.userId,
+    req.user.id,
+    "community_join_rejected",
+    `Your request to join ${item.name} was rejected`,
+    `/communities/${item._id}`,
+  );
   await sendCommunity(req, res, item);
 };
 
 export const join = requestJoin;
+

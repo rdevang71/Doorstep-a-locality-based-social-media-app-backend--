@@ -2,8 +2,9 @@ import Post from "../models/post.model.js";
 import Business from "../models/businessPage.model.js";
 import Comment from "../models/comment.model.js";
 import normalizeHashtags from "../utils/normalizeHashtags.js";
-import cloudinary from "../config/cloudinary.js";
-import { mkdir, writeFile } from "node:fs/promises";
+import { isCloudinaryConfigured } from "../config/cloudinary.js";
+import uploadImageBuffer from "../utils/cloudinaryUpload.js";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
@@ -17,6 +18,11 @@ const imageExtensions = {
   "image/webp": ".webp",
   "image/gif": ".gif",
 };
+
+const hasCloudinaryConfig = isCloudinaryConfigured;
+
+const cleanupLocalFile = (file) =>
+  file?.path ? unlink(file.path).catch(() => {}) : Promise.resolve();
 
 const saveImagesLocally = async (files, req) => {
   const directory = path.resolve("uploads", "posts");
@@ -32,44 +38,27 @@ const saveImagesLocally = async (files, req) => {
   );
 };
 
-const uploadImages = (files = [], req) => {
-  if (process.env.NODE_ENV !== "production") {
-    return saveImagesLocally(files, req);
+const uploadImageToCloudinary = (file) => uploadImageBuffer(file, { folder: "localconnect/posts" });
+
+const uploadImages = async (files = []) => {
+  if (!files.length) return [];
+  if (!hasCloudinaryConfig()) {
+    const e = new Error("Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.");
+    e.status = 500;
+    throw e;
   }
 
-  return Promise.all(
-    files.map(
-      (file) =>
-        new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            {
-              folder: "localconnect/posts",
-              resource_type: "image",
-              transformation: [
-                {
-                  width: 1600,
-                  height: 1600,
-                  crop: "limit",
-                  quality: "auto",
-                  fetch_format: "auto",
-                },
-              ],
-            },
-            (error, result) => {
-              if (error) {
-                error.status = 502;
-                error.message = "Image upload failed: " + error.message;
-                reject(error);
-                return;
-              }
-              resolve(result.secure_url);
-            },
-          );
-          stream.end(file.buffer);
-        }),
-    ),
-  );
+  try {
+    const urls = await Promise.all(files.map(uploadImageToCloudinary));
+    await Promise.all(files.map(cleanupLocalFile));
+    return urls;
+  } catch (error) {
+    const e = new Error(`Cloudinary post upload failed: ${error.message || "Unknown Cloudinary error"}`);
+    e.status = 502;
+    throw e;
+  }
 };
+
 const owned = async (id, user) => {
   const post = await Post.findById(id);
   if (!post) {
@@ -117,7 +106,7 @@ export const createPost = async (req, res) => {
     : images
       ? [images]
       : [];
-  const uploadedImages = req.files?.length ? await uploadImages(req.files, req) : [];
+  const uploadedImages = req.files?.length ? await uploadImages(req.files) : [];
   const post = await Post.create({
     author: req.user.id,
     content,
@@ -258,6 +247,11 @@ export const toggleLike = async (req, res) => {
   });
   res.json({ liked: index < 0, likesCount: post.likes.length });
 };
+
+
+
+
+
 
 
 

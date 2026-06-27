@@ -1,6 +1,7 @@
 import "dotenv/config";
 import http from "http";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import { Server } from "socket.io";
 import app from "./src/app.js";
 import { connectDB } from "./src/config/db.js";
@@ -9,14 +10,26 @@ import ChatRoom from "./src/models/chatRoom.model.js";
 import Community from "./src/models/community.model.js";
 import Message from "./src/models/message.model.js";
 const server = http.createServer(app);
-const canUseRoom = async (roomId, userId) => {
-  const room = await ChatRoom.findById(roomId);
+const canUseRoom = async (roomId, userId, password = "") => {
+  const room = await ChatRoom.findById(roomId).select("+passwordHash");
   if (!room) throw new Error("Chat room not found");
-  if (!room.isCommunityRoom) return room;
-  const community = await Community.findById(room.community).select("members");
-  if (!community) throw new Error("Community not found");
-  const member = community.members.some((id) => String(id) === String(userId));
-  if (!member) throw new Error("Join this community to use its chat room");
+  if (room.isCommunityRoom) {
+    const community = await Community.findById(room.community).select("members");
+    if (!community) throw new Error("Community not found");
+    const member = community.members.some((id) => String(id) === String(userId));
+    if (!member) throw new Error("Join this community to use its chat room");
+    return room;
+  }
+  if (room.isDirect) {
+    const member = room.directMembers?.some((id) => String(id) === String(userId));
+    if (!member) throw new Error("This friend chat is private");
+    return room;
+  }
+  if (room.type === "private") {
+    if (!(await bcrypt.compare(String(password), room.passwordHash || ""))) {
+      throw new Error("Enter the private room password to continue");
+    }
+  }
   return room;
 };
 const io = new Server(server, {
@@ -45,7 +58,7 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   socket.on("room:join", async (roomId, ack = () => {}) => {
     try {
-      await canUseRoom(roomId, socket.user?.id);
+      await canUseRoom(roomId, socket.user?.id, socket.handshake.auth?.roomPasswords?.[roomId]);
       socket.join(roomId);
       ack({ ok: true });
     } catch (e) {
@@ -53,10 +66,10 @@ io.on("connection", (socket) => {
     }
   });
   socket.on("room:leave", (roomId) => socket.leave(roomId));
-  socket.on("message:send", async ({ roomId, content }, ack = () => {}) => {
+  socket.on("message:send", async ({ roomId, content, password }, ack = () => {}) => {
     try {
       if (!socket.user) throw new Error("Authentication required");
-      await canUseRoom(roomId, socket.user.id);
+      await canUseRoom(roomId, socket.user.id, password);
       if (!content?.trim() || content.length > 1000)
         throw new Error("Message must be 1-1000 characters");
       const message = await Message.create({
@@ -82,6 +95,9 @@ connectDB()
     console.error(e);
     process.exit(1);
   });
+
+
+
 
 
 

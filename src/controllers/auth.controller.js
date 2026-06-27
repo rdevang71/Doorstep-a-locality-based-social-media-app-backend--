@@ -12,6 +12,12 @@ const safe = (u) => ({
   email: u.email,
   avatar: u.avatar,
   bio: u.bio,
+  interests: u.interests,
+  hobbies: u.hobbies,
+  occupation: u.occupation,
+  education: u.education,
+  friends: u.friends,
+  friendRequests: u.friendRequests,
   city: u.city,
   locality: u.locality,
   pincode: u.pincode,
@@ -43,6 +49,12 @@ export const register = async (req, res) => {
     communityName,
     organizationDescription,
     communityPrivate = false,
+    avatar,
+    bio,
+    interests,
+    hobbies,
+    occupation,
+    education,
   } = req.body;
 
   if (!name || !email || !password || !city || !locality || !pincode) {
@@ -88,6 +100,12 @@ export const register = async (req, res) => {
       locality,
       pincode: String(pincode).trim(),
       role: accountType,
+      avatar,
+      bio,
+      interests: Array.isArray(interests) ? interests : String(interests || "").split(",").map((v) => v.trim()).filter(Boolean),
+      hobbies: Array.isArray(hobbies) ? hobbies : String(hobbies || "").split(",").map((v) => v.trim()).filter(Boolean),
+      occupation,
+      education,
     });
 
     if (accountType === "business") {
@@ -138,3 +156,6 @@ export const logout = (_req, res) =>
   res.clearCookie("token").json({ message: "Logged out" });
 
 export const me = (req, res) => res.json({ user: safe(req.user) });
+
+
+

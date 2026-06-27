@@ -12,7 +12,18 @@ const schema = new mongoose.Schema(
     },
     password: { type: String, required: true, minlength: 6, select: false },
     avatar: String,
-    bio: { type: String, maxlength: 240 },
+    bio: { type: String, maxlength: 500 },
+    interests: [String],
+    hobbies: [String],
+    occupation: String,
+    education: String,
+    friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    friendRequests: [
+      {
+        from: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
     city: { type: String, required: true, index: true, trim: true },
     locality: { type: String, required: true, index: true, trim: true },
     pincode: {
@@ -40,3 +51,4 @@ schema.methods.comparePassword = function (candidate) {
   return bcrypt.compare(candidate, this.password);
 };
 export default mongoose.model("User", schema);
+
