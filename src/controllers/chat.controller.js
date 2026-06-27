@@ -16,6 +16,17 @@ const isMember = (community, userId) =>
   community.members.some((id) => sameId(id, userId));
 const roomSelect = "-passwordHash";
 const directKey = (a, b) => [String(a), String(b)].sort().join(":");
+const isSuperAdmin = (user) => user?.role === "super_admin";
+const roomOwnerId = (room) => String(room?.createdBy?._id || room?.createdBy || "");
+const roomWithPermissions = (room, user) => {
+  const ownerId = roomOwnerId(room);
+  const userId = String(user?._id || user?.id || user || "");
+  return {
+    ...room.toObject(),
+    ownerId,
+    canEdit: ownerId === userId || isSuperAdmin(user),
+  };
+};
 const imageExtensions = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -80,7 +91,9 @@ const requireCommunityMember = async (communityId, userId) => {
   return community;
 };
 
-const canUseRoom = async (room, userId, password = "") => {
+const canUseRoom = async (room, user, password = "") => {
+  if (isSuperAdmin(user)) return;
+  const userId = user?._id || user?.id || user;
   if (room.isCommunityRoom) {
     await requireCommunityMember(room.community, userId);
     return;
@@ -127,19 +140,20 @@ export const createRoom = async (req, res) => {
   res.status(201).json(await ChatRoom.findById(room._id).select(roomSelect));
 };
 
-export const listRooms = async (req, res) =>
-  res.json(
-    await ChatRoom.find({
-      isCommunityRoom: { $ne: true },
-      isDirect: { $ne: true },
-      ...(req.query.city && {
-        city: new RegExp(`^${escapeRegex(req.query.city)}$`, "i"),
-      }),
-    })
-      .select(roomSelect)
-      .populate("createdBy", "name avatar")
-      .sort("-createdAt"),
-  );
+export const listRooms = async (req, res) => {
+  const rooms = await ChatRoom.find({
+    isCommunityRoom: { $ne: true },
+    isDirect: { $ne: true },
+    ...(req.query.city && {
+      city: new RegExp(`^${escapeRegex(req.query.city)}$`, "i"),
+    }),
+  })
+    .select(roomSelect)
+    .populate("createdBy", "name avatar")
+    .sort("-createdAt");
+
+  res.json(rooms.map((room) => roomWithPermissions(room, req.user)));
+};
 
 export const joinPrivateRoom = async (req, res) => {
   const roomCode = String(req.body.roomCode || "").trim().toUpperCase();
@@ -157,7 +171,7 @@ export const joinPrivateRoom = async (req, res) => {
     e.status = 400;
     throw e;
   }
-  if (!(await bcrypt.compare(password, room.passwordHash || ""))) {
+  if (!isSuperAdmin(req.user) && !(await bcrypt.compare(password, room.passwordHash || ""))) {
     const e = new Error("Incorrect room password");
     e.status = 403;
     throw e;
@@ -172,7 +186,7 @@ export const updateRoom = async (req, res) => {
     e.status = 404;
     throw e;
   }
-  if (!sameId(room.createdBy, req.user.id)) {
+  if (!sameId(room.createdBy, req.user.id) && !isSuperAdmin(req.user)) {
     const e = new Error("Only the room owner can edit this room");
     e.status = 403;
     throw e;
@@ -203,13 +217,57 @@ export const updateRoom = async (req, res) => {
   }
 
   await room.save();
-  res.json(await ChatRoom.findById(room._id).select(roomSelect));
+  const updatedRoom = await ChatRoom.findById(room._id).select(roomSelect).populate("createdBy", "name avatar");
+  res.json(roomWithPermissions(updatedRoom, req.user));
 };
 
+export const deleteRoom = async (req, res) => {
+  const room = await ChatRoom.findById(req.params.id);
+  if (!room || room.isCommunityRoom || room.isDirect) {
+    const e = new Error("Chat room not found");
+    e.status = 404;
+    throw e;
+  }
+  if (!sameId(room.createdBy, req.user._id) && !isSuperAdmin(req.user)) {
+    const e = new Error("Only the room owner can delete this room");
+    e.status = 403;
+    throw e;
+  }
+
+  await Message.deleteMany({ room: room._id });
+  await room.deleteOne();
+  res.json({ message: "Room deleted" });
+};
 
 export const friendChats = async (req, res) => {
+  if (isSuperAdmin(req.user)) {
+    const rooms = await ChatRoom.find({ isDirect: true })
+      .select(roomSelect)
+      .populate("directMembers", "name avatar city locality email")
+      .sort("-updatedAt");
+
+    return res.json(
+      rooms.map((room) => {
+        const members = room.directMembers || [];
+        return {
+          friend: {
+            _id: room._id,
+            name: members.map((member) => member.name).filter(Boolean).join(" and ") || room.name,
+            avatar: members[0]?.avatar,
+            city: members.map((member) => member.city).filter(Boolean).join(" / "),
+            locality: "Direct chat",
+          },
+          room: {
+            ...room.toObject(),
+            name: members.map((member) => member.name).filter(Boolean).join(" and ") || room.name,
+            description: "Super admin direct chat view",
+          },
+        };
+      }),
+    );
+  }
+
   const me = await User.findById(req.user.id).populate("friends", "name avatar city locality bio");
-  const friendIds = (me?.friends || []).map((friend) => friend._id);
   const rooms = await ChatRoom.find({
     isDirect: true,
     directMembers: req.user.id,
@@ -242,7 +300,7 @@ export const directRoom = async (req, res) => {
     e.status = 404;
     throw e;
   }
-  if (!me.friends.some((id) => sameId(id, friend._id))) {
+  if (!isSuperAdmin(req.user) && !me.friends.some((id) => sameId(id, friend._id))) {
     const e = new Error("You can only start chats with friends");
     e.status = 403;
     throw e;
@@ -270,8 +328,16 @@ export const directRoom = async (req, res) => {
 
   res.json({ friend, room });
 };
+
 export const communityRoom = async (req, res) => {
-  const community = await requireCommunityMember(req.params.id, req.user.id);
+  const community = isSuperAdmin(req.user)
+    ? await Community.findById(req.params.id)
+    : await requireCommunityMember(req.params.id, req.user.id);
+  if (!community) {
+    const e = new Error("Community not found");
+    e.status = 404;
+    throw e;
+  }
   const room = await ChatRoom.findOneAndUpdate(
     { community: community._id, isCommunityRoom: true },
     {
@@ -300,7 +366,7 @@ export const messages = async (req, res) => {
     e.status = 404;
     throw e;
   }
-  await canUseRoom(room, req.user.id, req.query.password);
+  await canUseRoom(room, req.user, req.query.password);
 
   res.json(
     await Message.find({ room: room._id })
@@ -310,12 +376,3 @@ export const messages = async (req, res) => {
       .then((v) => v.reverse()),
   );
 };
-
-
-
-
-
-
-
-
-

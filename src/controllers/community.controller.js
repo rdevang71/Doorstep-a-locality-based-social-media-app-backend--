@@ -4,13 +4,15 @@ import createNotification from "../utils/createNotification.js";
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 const escapeRegex = (value) => String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sameId = (a, b) => String(a?._id || a) === String(b?._id || b);
+const isSuperAdmin = (user) => user?.role === "super_admin";
 const isMember = (community, userId) => community.members.some((id) => sameId(id, userId));
 const hasRequest = (community, userId) =>
   community.joinRequests?.some((request) => sameId(request.user, userId));
 const populateCommunity = (query) =>
   query.populate("creator", "name avatar").populate("members", "name avatar").populate("joinRequests.user", "name avatar email");
-const requireAdmin = (community, userId) => {
-  if (!sameId(community.creator, userId)) {
+const requireAdmin = (community, user) => {
+  const userId = user?._id || user?.id || user;
+  if (!sameId(community.creator, userId) && !isSuperAdmin(user)) {
     const e = new Error("Only the community admin can manage join requests");
     e.status = 403;
     throw e;
@@ -110,7 +112,8 @@ export const leave = async (req, res) => {
 
 export const approveRequest = async (req, res) => {
   const item = await findCommunity(req.params.id);
-  requireAdmin(item, req.user.id);
+  item.__requestUser = req.user;
+  requireAdmin(item, req.user);
   const requested = hasRequest(item, req.params.userId);
   if (!requested && isMember(item, req.params.userId)) {
     await markJoinRequestNotificationsRead(req.user.id, req.params.userId, item._id);
@@ -138,7 +141,8 @@ export const approveRequest = async (req, res) => {
 
 export const rejectRequest = async (req, res) => {
   const item = await findCommunity(req.params.id);
-  requireAdmin(item, req.user.id);
+  item.__requestUser = req.user;
+  requireAdmin(item, req.user);
   const requested = hasRequest(item, req.params.userId);
   if (!requested) {
     const e = new Error("Join request not found");
@@ -159,5 +163,19 @@ export const rejectRequest = async (req, res) => {
   await sendCommunity(req, res, item);
 };
 
+export const remove = async (req, res) => {
+  const item = await findCommunity(req.params.id);
+  if (!sameId(item.creator, req.user.id) && !isSuperAdmin(req.user)) {
+    const e = new Error("Only the community owner can delete this community");
+    e.status = 403;
+    throw e;
+  }
+  await Notification.deleteMany({
+    $or: [{ link: `/communities/${item._id}` }, { "data.communityId": item._id }],
+  });
+  await item.deleteOne();
+  emit(req, "communities:changed", { _id: item._id, deleted: true });
+  res.json({ message: "Community deleted" });
+};
 export const join = requestJoin;
 

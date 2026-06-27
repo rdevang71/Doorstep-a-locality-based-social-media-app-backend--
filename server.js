@@ -10,9 +10,12 @@ import ChatRoom from "./src/models/chatRoom.model.js";
 import Community from "./src/models/community.model.js";
 import Message from "./src/models/message.model.js";
 const server = http.createServer(app);
-const canUseRoom = async (roomId, userId, password = "") => {
+const isSuperAdmin = (user) => user?.role === "super_admin";
+const canUseRoom = async (roomId, user, password = "") => {
+  const userId = user?._id || user?.id || user;
   const room = await ChatRoom.findById(roomId).select("+passwordHash");
   if (!room) throw new Error("Chat room not found");
+  if (isSuperAdmin(user)) return room;
   if (room.isCommunityRoom) {
     const community = await Community.findById(room.community).select("members");
     if (!community) throw new Error("Community not found");
@@ -48,7 +51,7 @@ io.use(async (socket, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.user = await User.findById(decoded.id).select("name avatar");
+    socket.user = await User.findById(decoded.id).select("name avatar role");
     if (!socket.user) throw new Error();
     next();
   } catch {
@@ -58,7 +61,7 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   socket.on("room:join", async (roomId, ack = () => {}) => {
     try {
-      await canUseRoom(roomId, socket.user?.id, socket.handshake.auth?.roomPasswords?.[roomId]);
+      await canUseRoom(roomId, socket.user, socket.handshake.auth?.roomPasswords?.[roomId]);
       socket.join(roomId);
       ack({ ok: true });
     } catch (e) {
@@ -69,7 +72,7 @@ io.on("connection", (socket) => {
   socket.on("message:send", async ({ roomId, content, password }, ack = () => {}) => {
     try {
       if (!socket.user) throw new Error("Authentication required");
-      await canUseRoom(roomId, socket.user.id, password);
+      await canUseRoom(roomId, socket.user, password);
       if (!content?.trim() || content.length > 1000)
         throw new Error("Message must be 1-1000 characters");
       const message = await Message.create({

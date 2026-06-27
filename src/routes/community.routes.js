@@ -4,6 +4,7 @@ import { protect } from "../middlewares/auth.middleware.js";
 const r = Router();
 r.route("/").get(c.list).post(protect, c.create);
 r.get("/:id", c.get);
+r.delete("/:id", protect, c.remove);
 r.put("/:id/join", protect, c.requestJoin);
 r.put("/:id/request", protect, c.requestJoin);
 r.put("/:id/leave", protect, c.leave);

@@ -9,6 +9,7 @@ r.post("/rooms/join", c.joinPrivateRoom);
 r.get("/friends", c.friendChats);
 r.post("/direct/:friendId", c.directRoom);
 r.put("/rooms/:id", upload.single("avatar"), c.updateRoom);
+r.delete("/rooms/:id", c.deleteRoom);
 r.get("/communities/:id/room", c.communityRoom);
 r.get("/rooms/:id/messages", c.messages);
 export default r;

