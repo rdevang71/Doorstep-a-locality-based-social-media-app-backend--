@@ -6,7 +6,7 @@ import User from "../models/user.model.js";
 const SUPER_ADMIN = {
   name: "Super Admin",
   email: "rdevang@gmail.com",
-  password: "#Noorpur12",
+  password: "@Noorpur12",
   city: "Noorpur",
   locality: "Noorpur",
   pincode: "110001",
